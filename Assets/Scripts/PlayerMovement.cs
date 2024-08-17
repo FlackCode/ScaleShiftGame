@@ -10,6 +10,8 @@ public class PlayerMovement : MonoBehaviour
     private float moveSpeed;
     public float walkSpeed;
     public float sprintSpeed;
+    public float shrinkedWalkSpeed;
+    public float shrinkedSprintSpeed;
     public float drag;
 
     [Header("Scale")]
@@ -27,30 +29,46 @@ public class PlayerMovement : MonoBehaviour
     public float crouchTransitionDuration = 0.2f;
     private Coroutine crouchCoroutine;
 
+    [Header("Slide")]
+    public float slideDuration;
+    private bool isSliding = false;
+
+    [Header("Jump")]
+    public float jumpForce;
+    public float jumpCooldown;
+    public float airMultiplier;
+    private bool readyToJump = true;
+    public float gravityScale = 3f;
+
     [Header("Keybinds")]
     public KeyCode sprintKey = KeyCode.LeftShift;
     public KeyCode scaleKey = KeyCode.E;
     public KeyCode crouchKey = KeyCode.C;
+    public KeyCode jumpKey = KeyCode.Space;
 
     [Header("Ground Check")]
     private float playerHeight;
     public LayerMask whatIsGround;
-    bool grounded;
+    private bool grounded;
 
     [Header("Extra")]
     public Transform orientation;
-    public Transform cameraPos; //the actual camera, not the camera pos...
+    public Transform cameraPos;
     float horizontalInput;
     float verticalInput;
     Vector3 moveDirection;
     Rigidbody rigidBody;
+    private float defaultSprintSpeed;
 
-    public MovementState state;
+    public State state;
 
-    public enum MovementState {
+    public enum State {
         walking,
         sprinting,
-        crouching
+        crouching,
+        scaling,
+        jumping,
+        sliding
     }
     // Start is called before the first frame update
     void Start()
@@ -60,25 +78,82 @@ public class PlayerMovement : MonoBehaviour
 
         playerHeight = transform.localScale.y;
         startYScale = playerHeight;
+        moveSpeed = walkSpeed;
     }
 
     // Update is called once per frame
     void Update()
     {
-        float raycastDistance = playerHeight * 0.5f + 0.2f;
-
-        grounded = Physics.Raycast(transform.position + Vector3.up * 0.1f, Vector3.down, raycastDistance, whatIsGround);
-        Debug.DrawRay(transform.position + Vector3.up * 0.1f, Vector3.down * raycastDistance, Color.red);
-
-        Debug.Log("Grounded: " + grounded);
-
-        MyInput();
+        grounded = CheckGrounded();
         StateHandler();
-        SpeedControl();
+    }
+
+    private void StateHandler() {
+        if (isScaling || isSliding) return; // If scaling, ignore other transitions
+
+        if (Input.GetKeyDown(scaleKey) && !isScaling && !isCrouching && !CheckBelow() && CheckGrounded()) {
+            StartCoroutine(ScalePlayer());
+            state = State.scaling;
+            return;
+        }
+
+        if (Input.GetKeyDown(crouchKey) && !isSmall) {
+            if (Input.GetKey(sprintKey) && grounded) {
+                state = State.sliding;
+                if (crouchCoroutine != null) {
+                    StopCoroutine(crouchCoroutine);
+                }
+                StartCoroutine(Slide());
+            } else {
+                state = State.crouching;
+                if (crouchCoroutine != null) {
+                    StopCoroutine(crouchCoroutine);
+                }
+                crouchCoroutine = StartCoroutine(Crouch());
+            }
+        }
+
+        if (Input.GetKeyUp(crouchKey) && isCrouching && !isSmall && !CheckBelow()) {
+            state = State.walking;
+            if (crouchCoroutine != null) {
+                StopCoroutine(crouchCoroutine);
+            }
+            crouchCoroutine = StartCoroutine(Uncrouch());
+        }
+
+        if (isCrouching && !Input.GetKey(crouchKey) && !CheckBelow()) {
+            if (crouchCoroutine != null) {
+                StopCoroutine(crouchCoroutine);
+            }
+            crouchCoroutine = StartCoroutine(Uncrouch());
+        }
+
+        if (Input.GetKeyDown(jumpKey)) {
+            state = State.jumping;
+            StartCoroutine(Jump());
+            
+        }
+
+        if (grounded && Input.GetKey(sprintKey) && !isCrouching) {
+            state = State.sprinting;
+            if (isSmall) {
+                moveSpeed = shrinkedSprintSpeed;
+            } else {
+                moveSpeed = sprintSpeed;
+            }
+        } else if (grounded && !isCrouching) {
+            state = State.walking;
+            if (isSmall) {
+                moveSpeed = shrinkedWalkSpeed;
+            } else {
+                moveSpeed = walkSpeed;
+            }
+        }
     }
     
-    void FixedUpdate() {
-        if (grounded)
+    private void FixedUpdate()
+    {
+        if (grounded && state != State.scaling && state != State.sliding)
         {
             MovePlayer();
             rigidBody.drag = drag;
@@ -87,58 +162,25 @@ public class PlayerMovement : MonoBehaviour
         {
             rigidBody.drag = 0f;
         }
-    }
 
-    private void MyInput() {
-        horizontalInput = Input.GetAxisRaw("Horizontal");
-        verticalInput = Input.GetAxisRaw("Vertical");
-
-        if (Input.GetKeyDown(scaleKey) && !isScaling && !isCrouching) {
-            StartCoroutine(ScalePlayer());
-        }
-
-        if (Input.GetKeyDown(crouchKey) && !isSmall) {
-            if (crouchCoroutine != null) {
-                StopCoroutine(crouchCoroutine);
-            }
-            crouchCoroutine = StartCoroutine(Crouch());
-        }
-
-        if (Input.GetKeyUp(crouchKey) && !isSmall) {
-            if (crouchCoroutine != null) {
-                StopCoroutine(crouchCoroutine);
-            }
-            crouchCoroutine = StartCoroutine(Uncrouch());
+        if (!grounded) {
+            rigidBody.AddForce(Physics.gravity * gravityScale, ForceMode.Acceleration);
         }
     }
 
-    private void StateHandler() {
-        if (Input.GetKey(crouchKey) && !isSmall) {
-            state = MovementState.crouching;
-            moveSpeed = crouchSpeed;
-        } else if (grounded && Input.GetKey(sprintKey)) {
-            state = MovementState.sprinting;
-            moveSpeed = sprintSpeed;
-        } else if (grounded) {
-            state = MovementState.walking;
-            moveSpeed = walkSpeed;
-        }
-    }
+    private void MovePlayer()
+    {
+        Vector3 moveDirection = orientation.forward * Input.GetAxisRaw("Vertical") + orientation.right * Input.GetAxisRaw("Horizontal");
+        Debug.Log($"Move Direction: {moveDirection}, Speed: {moveSpeed}");
     
-    private void MovePlayer() {
-        moveDirection = orientation.forward * verticalInput + orientation.right * horizontalInput;
-
-        if (grounded) {
-            rigidBody.AddForce(10f * moveSpeed * moveDirection.normalized, ForceMode.Force);
-        }
-    }
-
-    private void SpeedControl() {
-        Vector3 flatVel = new Vector3(rigidBody.velocity.x, 0f, rigidBody.velocity.z);;
-
-        if (flatVel.magnitude > moveSpeed) {
-            Vector3 limitedVel = flatVel.normalized * moveSpeed;
-            rigidBody.velocity = new Vector3(limitedVel.x, rigidBody.velocity.y, limitedVel.z);
+        if (grounded || state == State.scaling) {
+            if (moveDirection != Vector3.zero) {
+                rigidBody.AddForce(10f * moveSpeed * moveDirection.normalized, ForceMode.Force);
+            }
+        } else {
+            if (moveDirection != Vector3.zero) {
+                rigidBody.AddForce(10f * airMultiplier * moveSpeed * moveDirection.normalized, ForceMode.Force);
+            }
         }
     }
 
@@ -172,6 +214,8 @@ public class PlayerMovement : MonoBehaviour
         Vector3 originalScale = transform.localScale;
         Vector3 targetScale = new Vector3(originalScale.x, startYScale * crouchYScale, originalScale.z);
 
+        moveSpeed = crouchSpeed;
+
         Vector3 cameraStartPos = cameraPos.localPosition;
         float originalHeight = 1f;
         float targetHeight = originalHeight * crouchYScale;
@@ -193,6 +237,8 @@ public class PlayerMovement : MonoBehaviour
         Vector3 originalScale = transform.localScale;
         Vector3 targetScale = new Vector3(originalScale.x, startYScale, originalScale.z);
 
+        moveSpeed = walkSpeed;
+
         Vector3 cameraStartPos = cameraPos.localPosition;
         float targetHeight = 1f;
         Vector3 cameraTargetPos = new Vector3(cameraStartPos.x, targetHeight, cameraStartPos.z);
@@ -205,5 +251,63 @@ public class PlayerMovement : MonoBehaviour
         }
         transform.localScale = targetScale;
         cameraPos.localPosition = cameraTargetPos;
+    }
+
+    private IEnumerator Jump() {
+        if (readyToJump && grounded) {
+            float adjustedJumpForce = isSmall ? jumpForce * 2f : jumpForce;
+            rigidBody.AddForce(Vector3.up * adjustedJumpForce, ForceMode.Impulse);
+            grounded = false;
+            readyToJump = false;
+            yield return new WaitForSeconds(jumpCooldown);
+            readyToJump = true;
+        }
+    }
+
+    private IEnumerator Slide() {
+        isSliding = true;
+
+        if (!isCrouching) {
+            if (crouchCoroutine != null) {
+                StopCoroutine(crouchCoroutine);
+            }
+            crouchCoroutine = StartCoroutine(Crouch());
+        }
+
+        float slideMultiplier = 1.1f;
+        moveSpeed = (isSmall ? shrinkedSprintSpeed : sprintSpeed ) * slideMultiplier;
+        Vector3 slideDirection = orientation.forward;
+
+        rigidBody.AddForce(slideDirection * moveSpeed, ForceMode.VelocityChange);
+
+        yield return new WaitForSeconds(slideDuration);
+
+        moveSpeed = isSmall ? shrinkedSprintSpeed : sprintSpeed;
+        isSliding = false;
+
+    }
+
+    private bool CheckGrounded() {
+        Vector3 rayOrigin = transform.position + Vector3.up * 0.1f;
+        Vector3 rayDirection = Vector3.down;
+        float rayDistance = playerHeight * 0.1f;
+
+        bool isGrounded = Physics.Raycast(rayOrigin, rayDirection, rayDistance, whatIsGround);
+
+        Debug.DrawRay(rayOrigin, rayDirection * rayDistance, isGrounded ? Color.green : Color.red);
+
+        return isGrounded;
+    }
+
+    private bool CheckBelow() {
+        Vector3 rayOrigin = transform.position + Vector3.up;
+        Vector3 rayDirection = Vector3.up;
+        float rayDistance = playerHeight * 1.1f;
+        
+        bool isBelow = Physics.Raycast(rayOrigin, rayDirection, rayDistance);
+
+        Debug.DrawRay(rayOrigin, rayDirection * rayDistance, isBelow ? Color.green : Color.red);
+
+        return isBelow;
     }
 }
