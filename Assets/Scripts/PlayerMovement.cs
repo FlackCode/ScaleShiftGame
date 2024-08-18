@@ -35,6 +35,7 @@ public class PlayerMovement : MonoBehaviour
 
     [Header("Jump")]
     public float jumpForce;
+    public float smallJumpForce;
     public float jumpCooldown;
     public float airMultiplier;
     private bool readyToJump = true;
@@ -255,7 +256,7 @@ public class PlayerMovement : MonoBehaviour
 
     private IEnumerator Jump() {
         if (readyToJump && grounded) {
-            float adjustedJumpForce = isSmall ? jumpForce * 2f : jumpForce;
+            float adjustedJumpForce = isSmall ? smallJumpForce : jumpForce;
             rigidBody.AddForce(Vector3.up * adjustedJumpForce, ForceMode.Impulse);
             grounded = false;
             readyToJump = false;
@@ -290,9 +291,9 @@ public class PlayerMovement : MonoBehaviour
     private bool CheckGrounded() {
         Vector3 rayOrigin = transform.position + Vector3.up * 0.1f;
         Vector3 rayDirection = Vector3.down;
-        float rayDistance = playerHeight * 0.1f;
+        float rayDistance = (playerHeight * 0.5f) + 0.2f;
 
-        bool isGrounded = Physics.Raycast(rayOrigin, rayDirection, rayDistance, whatIsGround);
+        bool isGrounded = Physics.Raycast(rayOrigin, rayDirection, rayDistance);
 
         Debug.DrawRay(rayOrigin, rayDirection * rayDistance, isGrounded ? Color.green : Color.red);
 

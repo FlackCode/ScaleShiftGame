@@ -51,5 +51,6 @@
         "temp/": true,
         "Temp/": true
     },
-    "dotnet.defaultSolution": "ScaleShift.sln"
+    "dotnet.defaultSolution": "ScaleShift.sln",
+    "git.ignoreLimitWarning": true
 }
