@@ -52,6 +52,10 @@ public class PlayerMovement : MonoBehaviour
     public LayerMask whatIsGround;
     private bool grounded;
 
+    [Header("Maze Check")]
+    public LayerMask mazeCeiling;
+    private bool inMaze;
+
     [Header("Extra")]
     public Transform orientation;
     public Transform cameraPos;
@@ -87,12 +91,15 @@ public class PlayerMovement : MonoBehaviour
     {
         grounded = CheckGrounded();
         StateHandler();
+
+        inMaze = CheckInMaze();
+        Debug.Log(inMaze);
     }
 
     private void StateHandler() {
         if (isScaling || isSliding) return; // If scaling, ignore other transitions
 
-        if (Input.GetKeyDown(scaleKey) && !isScaling && !isCrouching && !CheckBelow() && CheckGrounded()) {
+        if (Input.GetKeyDown(scaleKey) && !isScaling && !isCrouching && !CheckBelow() && CheckGrounded() && !inMaze) {
             StartCoroutine(ScalePlayer());
             state = State.scaling;
             return;
@@ -129,7 +136,7 @@ public class PlayerMovement : MonoBehaviour
             crouchCoroutine = StartCoroutine(Uncrouch());
         }
 
-        if (Input.GetKeyDown(jumpKey)) {
+        if (Input.GetKeyDown(jumpKey) && !inMaze) {
             state = State.jumping;
             StartCoroutine(Jump());
             
@@ -172,7 +179,7 @@ public class PlayerMovement : MonoBehaviour
     private void MovePlayer()
     {
         Vector3 moveDirection = orientation.forward * Input.GetAxisRaw("Vertical") + orientation.right * Input.GetAxisRaw("Horizontal");
-        Debug.Log($"Move Direction: {moveDirection}, Speed: {moveSpeed}");
+        //Debug.Log($"Move Direction: {moveDirection}, Speed: {moveSpeed}");
     
         if (grounded || state == State.scaling) {
             if (moveDirection != Vector3.zero) {
@@ -310,5 +317,15 @@ public class PlayerMovement : MonoBehaviour
         Debug.DrawRay(rayOrigin, rayDirection * rayDistance, isBelow ? Color.green : Color.red);
 
         return isBelow;
+    }
+
+    private bool CheckInMaze() {
+        Vector3 rayOrigin = transform.position + Vector3.up;
+        Vector3 rayDirection = Vector3.up;
+        float rayDistance = playerHeight * 2f;
+
+        bool inMaze = Physics.Raycast(rayOrigin, rayDirection, rayDistance, mazeCeiling);
+
+        return inMaze;
     }
 }
